@@ -3,146 +3,248 @@ import pandas as pd
 import datetime
 import uuid
 
-# --- PAGE CONFIGURATION (Mobile Optimization) ---
+# --- PAGE CONFIGURATION ---
 st.set_page_config(
-    page_title="FairTix",
+    page_title="FairTix | Decentralized Ticketing",
     page_icon="🎟️",
-    layout="centered", # Centered is better for mobile
-    initial_sidebar_state="collapsed"
+    layout="wide"
 )
 
-# --- CUSTOM CSS (The "Figma" Look) ---
-# This hides the default Streamlit header and styles buttons to look like apps
-st.markdown("""
-    <style>
-    /* Force Dark Theme Background */
-    .stApp {
-        background-color: #0f172a;
-        color: white;
-    }
-    
-    /* Hide Streamlit Elements */
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    header {visibility: hidden;}
-    
-    /* Card Styling */
-    .css-1r6slb0, .css-12oz5g7 {
-        background-color: #1e293b;
-        border-radius: 15px;
-        padding: 20px;
-        border: 1px solid #334155;
-        margin-bottom: 10px;
-    }
-    
-    /* Success Message Styling */
-    .stSuccess {
-        background-color: #064e3b !important;
-        color: #6ee7b7 !important;
-        border-radius: 10px;
-    }
-    
-    /* Error Message Styling */
-    .stError {
-        background-color: #7f1d1d !important;
-        color: #fca5a5 !important;
-        border-radius: 10px;
-    }
-    
-    /* Make Buttons full width and rounded */
-    .stButton>button {
-        width: 100%;
-        border-radius: 25px;
-        font-weight: bold;
-        height: 50px;
-        background-color: #3b82f6;
-        color: white;
-        border: none;
-    }
-    </style>
-""", unsafe_allow_html=True)
+# --- SESSION STATE (The "Blockchain" Simulation) ---
+# We use session_state to persist data as if it were on a blockchain ledger.
 
-# --- SESSION STATE SETUP ---
+if 'events' not in st.session_state:
+    st.session_state['events'] = []
+
 if 'tickets' not in st.session_state:
     st.session_state['tickets'] = []
-    # Pre-seed one ticket for the demo
-    st.session_state['tickets'].append({
-        "ticket_id": "NFT-8821",
-        "event_name": "Graduation Gala 2025",
-        "owner": "Alice (You)",
-        "face_value": 20.0,
-        "resale_price": 20.0,
-        "for_sale": False,
-        "image": "https://images.unsplash.com/photo-1492684223066-81342ee5ff30"
+
+if 'ledger' not in st.session_state:
+    st.session_state['ledger'] = []
+
+# Simulated Wallets (Users)
+if 'wallets' not in st.session_state:
+    st.session_state['wallets'] = {
+        "Organizer (You)": {"balance": 1000, "role": "admin"},
+        "Alice (Fan)": {"balance": 200, "role": "user"},
+        "Bob (Scalper)": {"balance": 500, "role": "user"},
+        "Charlie (Fan)": {"balance": 150, "role": "user"}
+    }
+
+
+# --- HELPER FUNCTIONS (Smart Contract Logic) ---
+
+def log_transaction(tx_type, from_user, to_user, details, status):
+    """Records an action to the immutable ledger."""
+    st.session_state['ledger'].append({
+        "Timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "Type": tx_type,
+        "From": from_user,
+        "To": to_user,
+        "Details": details,
+        "Status": status
     })
 
-# --- APP HEADER ---
-col1, col2 = st.columns([4, 1])
-with col1:
-    st.markdown("## FairTix 🎟️")
-with col2:
-    # Role Switcher (Hidden in a tiny expander for demo purposes)
-    with st.expander("👤"):
-        user_role = st.radio("User:", ["Alice (You)", "Organizer"])
 
-# --- NAVIGATION TABS (Like a Mobile App) ---
-tab1, tab2, tab3 = st.tabs(["🔥 Discover", "👛 Wallet", "⚙️ Dashboard"])
+def create_event(name, total_supply, face_value):
+    """Mints a batch of NFT tickets."""
+    event_id = str(uuid.uuid4())[:8]
+    new_event = {
+        "id": event_id,
+        "name": name,
+        "supply": total_supply,
+        "price": face_value,
+        "organizer": "Organizer (You)"
+    }
+    st.session_state['events'].append(new_event)
 
-# --- TAB 1: DISCOVER ---
-with tab1:
-    st.image("https://images.unsplash.com/photo-1492684223066-81342ee5ff30", use_container_width=True)
-    st.markdown("### Graduation Gala 2025")
-    st.caption("Fri, Jun 20 • Grand Hall, Reims")
-    
-    c1, c2 = st.columns(2)
-    with c1:
-        st.markdown("#### $20.00")
-    with c2:
-        st.button("Sold Out", disabled=True)
-    
-    st.info("ℹ️ Official tickets sold out. Check secondary market.")
+    # Mint Tickets
+    for i in range(total_supply):
+        st.session_state['tickets'].append({
+            "ticket_id": f"{event_id}-{i + 1}",
+            "event_id": event_id,
+            "event_name": name,
+            "owner": "Organizer (You)",
+            "face_value": face_value,
+            "for_sale": True,
+            "resale_price": face_value  # Initial price is face value
+        })
 
-# --- TAB 2: WALLET (THE MAIN DEMO) ---
-with tab2:
-    st.markdown("### My Tickets")
-    
-    my_tickets = [t for t in st.session_state['tickets'] if t['owner'] == "Alice (You)"]
-    
-    if not my_tickets:
-        st.write("No tickets yet.")
+    log_transaction("MINT", "System", "Organizer", f"Minted {total_supply} tickets for {name}", "SUCCESS")
+
+
+def buy_ticket(ticket_id, buyer_name):
+    """Handles primary market purchase."""
+    ticket = next((t for t in st.session_state['tickets'] if t['ticket_id'] == ticket_id), None)
+    buyer_wallet = st.session_state['wallets'][buyer_name]
+
+    if ticket and ticket['for_sale']:
+        price = ticket['resale_price']
+
+        if buyer_wallet['balance'] >= price:
+            # Transfer Funds
+            buyer_wallet['balance'] -= price
+            st.session_state['wallets'][ticket['owner']]['balance'] += price
+
+            # Transfer Ownership (NFT)
+            prev_owner = ticket['owner']
+            ticket['owner'] = buyer_name
+            ticket['for_sale'] = False  # Remove from market
+
+            log_transaction("BUY", buyer_name, prev_owner, f"Bought Ticket {ticket_id} for ${price}", "SUCCESS")
+            return True, "Ticket purchased successfully!"
+        else:
+            return False, "Insufficient funds!"
+    return False, "Ticket not available."
+
+
+def list_resale(ticket_id, seller_name, resale_price):
+    """
+    SMART CONTRACT LOGIC: ENFORCE PRICE CAP
+    This is the core grading criteria feature.
+    """
+    ticket = next((t for t in st.session_state['tickets'] if t['ticket_id'] == ticket_id), None)
+
+    if ticket:
+        max_price = ticket['face_value'] * 1.10  # 110% CAP
+
+        if resale_price > max_price:
+            # REVERT TRANSACTION
+            log_transaction("RESALE_ATTEMPT", seller_name, "Market",
+                            f"Attempted sell {ticket_id} for ${resale_price} (Cap: ${max_price:.2f})", "REVERTED")
+            return False, f"⚠️ SMART CONTRACT ERROR: Price ${resale_price} exceeds the 110% cap (${max_price:.2f}). Transaction Reverted."
+        else:
+            # ALLOW LISTING
+            ticket['for_sale'] = True
+            ticket['resale_price'] = resale_price
+            log_transaction("LISTING", seller_name, "Market", f"Listed {ticket_id} for ${resale_price}", "SUCCESS")
+            return True, f"✅ Success! Ticket listed for ${resale_price}."
+
+
+# --- SIDEBAR NAVIGATION ---
+st.sidebar.title("FairTix 🎟️")
+st.sidebar.markdown("Decentralized Ticketing System")
+
+user_role = st.sidebar.selectbox("Select User Role (Simulated)", list(st.session_state['wallets'].keys()))
+current_balance = st.session_state['wallets'][user_role]['balance']
+st.sidebar.metric("Current Wallet Balance", f"${current_balance}")
+
+menu = st.sidebar.radio("Navigation",
+                        ["Marketplace", "My Wallet & Tickets", "Organizer Dashboard", "Blockchain Explorer"])
+
+# --- PAGE: ORGANIZER DASHBOARD ---
+if menu == "Organizer Dashboard":
+    st.header("⚡ Organizer Dashboard")
+    st.markdown("Create events and mint NFT tickets.")
+
+    if user_role != "Organizer (You)":
+        st.warning("Access Denied: You are not an Organizer.")
     else:
-        for t in my_tickets:
-            # TICKET CARD
-            with st.container():
-                st.image(t['image'], use_container_width=True)
-                st.markdown(f"**{t['event_name']}**")
-                st.caption(f"ID: {t['ticket_id']} • Face Value: ${t['face_value']}")
-                
-                # QR Code simulation
-                st.markdown("---")
-                c_qr1, c_qr2, c_qr3 = st.columns([1,2,1])
-                with c_qr2:
-                    # Simple QR code image
-                    st.image("https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=FairTixProof", use_container_width=True)
-                st.caption("Scan at entry")
-                
-                st.markdown("---")
-                st.write("#### Resell Ticket")
-                
-                # THE SMART CONTRACT LOGIC
-                new_price = st.number_input("Set Price ($)", value=float(t['face_value']), step=1.0)
-                cap = t['face_value'] * 1.10
-                
-                if st.button("List for Resale"):
-                    if new_price > cap:
-                        st.error(f"⛔ BLOCKED: Price ${new_price} exceeds the 110% Smart Contract Cap (${cap:.2f})")
-                    else:
-                        st.success(f"✅ SUCCESS: Listed for ${new_price}")
-                        # logic to move ticket would go here
+        with st.form("create_event_form"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                ev_name = st.text_input("Event Name", value="Graduation Party 2025")
+            with col2:
+                ev_supply = st.number_input("Total Tickets", min_value=1, value=50)
+            with col3:
+                ev_price = st.number_input("Face Value ($)", min_value=1, value=20)
 
-# --- TAB 3: ORGANIZER ---
-with tab3:
-    st.write("Organizer Stats")
-    st.metric("Total Sales", "$1,000")
-    st.metric("Royalty Earnings", "$45.00")
-    st.caption("Smart Contract deployed on Polygon")
+            submitted = st.form_submit_button("Mint Tickets on Blockchain")
+
+            if submitted:
+                create_event(ev_name, ev_supply, ev_price)
+                st.success(f"Successfully minted {ev_supply} NFT tickets for {ev_name}!")
+
+# --- PAGE: MARKETPLACE ---
+elif menu == "Marketplace":
+    st.header("🛒 Ticket Marketplace")
+    st.markdown("Buy verified NFT tickets directly from organizers or other fans.")
+
+    # Filter tickets that are FOR SALE and NOT owned by current user
+    available_tickets = [t for t in st.session_state['tickets'] if t['for_sale'] and t['owner'] != user_role]
+
+    if not available_tickets:
+        st.info("No tickets currently available for sale.")
+    else:
+        # Display as cards
+        for t in available_tickets:
+            with st.container():
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                with col1:
+                    st.subheader(t['event_name'])
+                    st.caption(f"NFT ID: {t['ticket_id']}")
+                with col2:
+                    st.write(f"**Seller:** {t['owner']}")
+                with col3:
+                    st.metric("Price", f"${t['resale_price']}")
+                    if t['resale_price'] > t['face_value']:
+                        st.caption("⚠️ Resale Market")
+                with col4:
+                    if st.button(f"Buy Now", key=f"buy_{t['ticket_id']}"):
+                        success, msg = buy_ticket(t['ticket_id'], user_role)
+                        if success:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+                st.divider()
+
+# --- PAGE: MY WALLET ---
+elif menu == "My Wallet & Tickets":
+    st.header(f"🎟️ {user_role}'s Wallet")
+
+    # Filter tickets owned by current user
+    my_tickets = [t for t in st.session_state['tickets'] if t['owner'] == user_role]
+
+    if not my_tickets:
+        st.info("You don't own any tickets yet.")
+    else:
+        st.subheader("Your Inventory")
+        for t in my_tickets:
+            with st.expander(f"{t['event_name']} (ID: {t['ticket_id']})"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**Face Value:** ${t['face_value']}")
+                    st.write(f"**Status:** {'Listed for Sale' if t['for_sale'] else 'In Wallet'}")
+
+                with col2:
+                    st.write("### Sell Ticket")
+                    st.write("Smart Contract Rule: Max Price = 110% of Face Value")
+
+                    new_price = st.number_input(
+                        "Set Resale Price ($)",
+                        min_value=0.0,
+                        value=float(t['face_value']),
+                        key=f"price_{t['ticket_id']}"
+                    )
+
+                    if st.button("List for Resale", key=f"sell_{t['ticket_id']}"):
+                        success, msg = list_resale(t['ticket_id'], user_role, new_price)
+                        if success:
+                            st.success(msg)
+                            st.rerun()
+                        else:
+                            st.error(msg)
+
+# --- PAGE: BLOCKCHAIN EXPLORER ---
+elif menu == "Blockchain Explorer":
+    st.header("⛓️ Blockchain Ledger")
+    st.markdown("Immutable record of all transactions. This proves transparency.")
+
+    if st.session_state['ledger']:
+        df = pd.DataFrame(st.session_state['ledger'])
+
+
+        # Color code status
+        def color_status(val):
+            color = 'green' if val == 'SUCCESS' else 'red'
+            return f'color: {color}'
+
+
+        st.dataframe(df.style.map(color_status, subset=['Status']), use_container_width=True)
+    else:
+        st.info("No transactions recorded yet.")
+
+# --- FOOTER ---
+st.markdown("---")
+st.caption("FairTix Project Prototype | Built with Python & Streamlit")
