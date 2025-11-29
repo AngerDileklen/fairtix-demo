@@ -31,6 +31,10 @@ if 'wallets' not in st.session_state:
         "Charlie (Fan)": {"balance": 150, "role": "user"}
     }
 
+# Login State
+if 'admin_logged_in' not in st.session_state:
+    st.session_state['admin_logged_in'] = False
+
 
 # --- HELPER FUNCTIONS (Smart Contract Logic) ---
 
@@ -126,6 +130,34 @@ st.sidebar.title("FairTix 🎟️")
 st.sidebar.markdown("Decentralized Ticketing System")
 
 user_role = st.sidebar.selectbox("Select User Role (Simulated)", list(st.session_state['wallets'].keys()))
+
+# --- ADMIN LOGIN PROTECTION ---
+if user_role == "Organizer (You)":
+    if not st.session_state['admin_logged_in']:
+        st.sidebar.markdown("---")
+        st.sidebar.warning("🔒 Admin Login Required")
+        
+        with st.sidebar.form("login_form"):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            submit = st.form_submit_button("Login")
+            
+            if submit:
+                if username == "admin" and password == "admin":
+                    st.session_state['admin_logged_in'] = True
+                    st.rerun()
+                else:
+                    st.error("Invalid credentials")
+        
+        st.info("Please log in using the sidebar to access the Organizer Dashboard.")
+        st.stop()  # Stop execution here to prevent access
+    else:
+        if st.sidebar.button("Logout"):
+            st.session_state['admin_logged_in'] = False
+            st.rerun()
+
+# --- MAIN APP LOGIC ---
+
 current_balance = st.session_state['wallets'][user_role]['balance']
 st.sidebar.metric("Current Wallet Balance", f"${current_balance}")
 
